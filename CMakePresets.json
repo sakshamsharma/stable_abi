@@ -114,6 +114,22 @@
       "cacheVariables": {
         "CMAKE_TOOLCHAIN_FILE": "infra/cmake/msvc-toolchain.cmake"
       }
+    },
+    {
+      "name": "p2996-debug",
+      "displayName": "Clang/P2996 Debug Build",
+      "inherits": [
+        "_root-config",
+        "_debug-base"
+      ],
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}-make",
+      "cacheVariables": {
+        "CMAKE_CXX_STANDARD": "26",
+        "CMAKE_TOOLCHAIN_FILE": "infra/cmake/clang-p2996-toolchain.cmake",
+        "BEMAN_STABLE_ABI_BUILD_EXAMPLES": "ON",
+        "BEMAN_STABLE_ABI_BUILD_TESTS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -177,6 +193,13 @@
       "inherits": [
         "_root-build"
       ]
+    },
+    {
+      "name": "p2996-debug",
+      "configurePreset": "p2996-debug",
+      "inherits": [
+        "_root-build"
+      ]
     }
   ],
   "testPresets": [
@@ -230,6 +253,11 @@
       "name": "msvc-release",
       "inherits": "_test_base",
       "configurePreset": "msvc-release"
+    },
+    {
+      "name": "p2996-debug",
+      "inherits": "_test_base",
+      "configurePreset": "p2996-debug"
     }
   ],
   "workflowPresets": [
@@ -366,6 +394,23 @@
         {
           "type": "test",
           "name": "msvc-release"
+        }
+      ]
+    },
+    {
+      "name": "p2996-debug",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "p2996-debug"
+        },
+        {
+          "type": "build",
+          "name": "p2996-debug"
+        },
+        {
+          "type": "test",
+          "name": "p2996-debug"
         }
       ]
     }
