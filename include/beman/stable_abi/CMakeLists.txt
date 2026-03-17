@@ -2,5 +2,11 @@
 
 target_sources(
     beman.stable_abi
-    PUBLIC FILE_SET HEADERS FILES stable_abi.hpp
+    PUBLIC
+        FILE_SET HEADERS
+            FILES
+                abi_hash.hpp
+                config.hpp
+                crc32.hpp
+                stable_abi.hpp
 )

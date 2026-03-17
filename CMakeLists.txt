@@ -41,6 +41,7 @@ add_subdirectory(include/beman/stable_abi)
 beman_install_library(beman.stable_abi TARGETS beman.stable_abi)
 
 if(BEMAN_STABLE_ABI_BUILD_TESTS)
+    find_package(GTest CONFIG REQUIRED)
     enable_testing()
     add_subdirectory(tests/beman/stable_abi)
 endif()

@@ -20,8 +20,15 @@ It is based on the ideas in [`20240117 - ABI comparison with reflection.pdf`](./
 
 ## Usage
 
-This repository is intentionally implementation-empty in its first commit boundary.
-The current public header only reserves the library namespace and documents the project scope.
+The prototype has been ported into library headers under `include/beman/stable_abi/`.
+The main entry point is:
+
+```cpp
+#include <beman/stable_abi/stable_abi.hpp>
+```
+
+The code currently assumes a compiler that provides `<experimental/meta>` and the older reflection spellings used by the original prototype.
+Build validation against a current reflection compiler is the next integration step.
 
 ## Scope
 
