@@ -54,12 +54,21 @@ This project currently requires:
 
 * a C++ compiler with experimental static reflection support
 * CMake 3.30 or later
-* GoogleTest for future tests
+* a matching standard library with `<meta>` support
 
-The empty scaffold keeps tests and examples disabled by default:
+The default presets keep tests and examples disabled:
 
 * `BEMAN_STABLE_ABI_BUILD_TESTS=OFF`
 * `BEMAN_STABLE_ABI_BUILD_EXAMPLES=OFF`
+
+For the local Bloomberg Clang/P2996 toolchain checked out on this machine, use:
+
+```bash
+cmake --workflow --preset p2996-debug
+```
+
+That preset enables both `-freflection` and `-fexpansion-statements`, builds the
+example, and runs the current compile-time ABI hash test.
 
 ### Supported Platforms
 

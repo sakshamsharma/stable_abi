@@ -2,8 +2,6 @@
 
 #include <beman/stable_abi/stable_abi.hpp>
 
-#include <gtest/gtest.h>
-
 #include <cstddef>
 
 namespace stable_abi = beman::stable_abi;
@@ -40,26 +38,19 @@ struct order_book {
 };
 }  // namespace
 
-TEST(abi_hash, member_names_can_be_ignored) {
-    constexpr auto lhs =
-        stable_abi::get_abi_hash<named_member_a,
-                                 stable_abi::abi_hashing_config{
-                                     .include_nsdm_names = false}>();
-    constexpr auto rhs =
-        stable_abi::get_abi_hash<named_member_b,
-                                 stable_abi::abi_hashing_config{
-                                     .include_nsdm_names = false}>();
-    EXPECT_EQ(lhs, rhs);
-}
+static_assert(
+    stable_abi::get_abi_hash<
+        named_member_a,
+        stable_abi::abi_hashing_config{.include_nsdm_names = false}>() ==
+    stable_abi::get_abi_hash<
+        named_member_b,
+        stable_abi::abi_hashing_config{.include_nsdm_names = false}>());
 
-TEST(abi_hash, layout_changes_affect_the_hash) {
-    constexpr auto lhs = stable_abi::get_abi_hash<layout_a>();
-    constexpr auto rhs = stable_abi::get_abi_hash<layout_b>();
-    EXPECT_NE(lhs, rhs);
-}
+static_assert(
+    stable_abi::get_abi_hash<layout_a>() != stable_abi::get_abi_hash<layout_b>());
 
-TEST(abi_hash, nested_layouts_hash_recursively) {
-    constexpr auto flat = stable_abi::get_abi_hash<layout_a>();
-    constexpr auto nested = stable_abi::get_abi_hash<order_book>();
-    EXPECT_NE(flat, nested);
-}
+static_assert(
+    stable_abi::get_abi_hash<layout_a>() !=
+    stable_abi::get_abi_hash<order_book>());
+
+int main() { return 0; }

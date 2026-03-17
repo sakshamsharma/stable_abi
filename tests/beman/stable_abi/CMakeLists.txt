@@ -7,8 +7,7 @@ target_sources(
 )
 target_link_libraries(
     beman.stable_abi.tests.abi_hash
-    PRIVATE beman::stable_abi GTest::gtest GTest::gtest_main
+    PRIVATE beman::stable_abi
 )
 
-include(GoogleTest)
-gtest_discover_tests(beman.stable_abi.tests.abi_hash)
+add_test(NAME beman.stable_abi.tests.abi_hash COMMAND beman.stable_abi.tests.abi_hash)
