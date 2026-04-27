@@ -58,6 +58,8 @@ enum class calling_convention { c_boundary };
 
 enum class exception_policy { noexcept_, may_throw };
 
+enum class description_mode { native, boundary };
+
 struct enum_enumerator_description {
     std::string name;
     std::string value;
@@ -106,6 +108,7 @@ struct function_result_description {
 
 struct function_description {
     std::string id;
+    std::string signature_id;
     std::string display_name;
     std::string qualified_name;
     calling_convention convention = calling_convention::c_boundary;
@@ -119,6 +122,7 @@ struct function_description {
 
 struct abi_spec_table {
     std::uint32_t schema_version = 1;
+    description_mode mode = description_mode::boundary;
     std::string root_type_id;
     std::string root_function_id;
     std::vector<type_description> types;
@@ -257,15 +261,23 @@ inline std::string indent(std::size_t depth) {
     return std::string(depth * 2, ' ');
 }
 
-inline std::string hex_id(std::string_view prefix, std::uint32_t hash) {
+inline std::string hex_id(std::string_view prefix, std::uint64_t hash) {
     std::ostringstream out;
-    out << prefix << std::hex << std::setw(8) << std::setfill('0')
-        << static_cast<unsigned int>(hash);
+    out << prefix << std::hex << std::setw(16) << std::setfill('0') << hash;
     return out.str();
 }
 
 inline std::uint32_t runtime_crc32(std::string_view value) {
     return detail::crc32(value);
+}
+
+constexpr std::uint64_t runtime_fnv1a_64(std::string_view value) {
+    std::uint64_t hash = 14695981039346656037ull;
+    for (const unsigned char ch : value) {
+        hash ^= static_cast<std::uint64_t>(ch);
+        hash *= 1099511628211ull;
+    }
+    return hash;
 }
 
 inline std::string to_string(type_kind kind) {
@@ -336,6 +348,16 @@ inline std::string to_string(exception_policy policy) {
         return "may_throw";
     }
     return "may_throw";
+}
+
+inline std::string to_string(description_mode mode) {
+    switch (mode) {
+    case description_mode::native:
+        return "native";
+    case description_mode::boundary:
+        return "boundary";
+    }
+    return "boundary";
 }
 
 template <typename Integer>
@@ -464,6 +486,8 @@ struct internal_function_description {
 
 class abi_builder {
 public:
+    explicit abi_builder(description_mode mode) : mode_(mode) {}
+
     template <meta::info Type>
     abi_spec_table describe_root_type() {
         const std::size_t root_type = ensure_type<Type>();
@@ -492,6 +516,9 @@ public:
     }
 
 private:
+    bool is_boundary_mode() const { return mode_ == description_mode::boundary; }
+    bool is_native_mode() const { return mode_ == description_mode::native; }
+
     template <typename T>
     std::size_t ensure_type_from_cpp() {
         return ensure_type<^^T>();
@@ -562,22 +589,27 @@ private:
 
         if constexpr (is_builtin_type<Type>()) {
             internal_types_[index].kind = type_kind::builtin;
-            internal_types_[index].boundary_transportable = !meta::is_void_type(Type);
-            internal_types_[index].boundary_transport_kind =
-                meta::is_void_type(Type) ? transport_kind::unsupported
-                                         : transport_kind::by_value_scalar;
-            if constexpr (meta::is_void_type(Type)) {
-                internal_types_[index].boundary_diagnostic =
-                    "void is only valid as a function result in v1";
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable =
+                    !meta::is_void_type(Type);
+                internal_types_[index].boundary_transport_kind =
+                    meta::is_void_type(Type) ? transport_kind::unsupported
+                                             : transport_kind::by_value_scalar;
+                if constexpr (meta::is_void_type(Type)) {
+                    internal_types_[index].boundary_diagnostic =
+                        "void is only valid as a function result in v1";
+                }
             }
         } else if constexpr (meta::is_enum_type(Type)) {
             using enum_type = typename [:Type:];
             using underlying_type = std::underlying_type_t<enum_type>;
 
             internal_types_[index].kind = type_kind::enumeration;
-            internal_types_[index].boundary_transportable = true;
-            internal_types_[index].boundary_transport_kind =
-                transport_kind::by_value_scalar;
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable = true;
+                internal_types_[index].boundary_transport_kind =
+                    transport_kind::by_value_scalar;
+            }
             internal_types_[index].is_scoped_enum =
                 meta::is_scoped_enum_type(Type);
             internal_types_[index].underlying_type_index =
@@ -600,63 +632,100 @@ private:
                 internal_types_[index].enumerators.push_back(
                     std::move(enumerator_desc));
             }
-        } else if constexpr (span_traits<typename [:Type:]>::is_span) {
+        } else if constexpr (span_traits<typename [:Type:]>::is_span && false) {
+            // Unused: handled below so native mode can preserve the native layout.
+        } else if constexpr (span_traits<typename [:Type:]>::is_span && true) {
             using span_type = typename [:Type:];
             using element_type =
                 typename span_traits<std::remove_cv_t<span_type>>::element_type;
-
-            internal_types_[index].kind = type_kind::span_view;
-            internal_types_[index].boundary_transportable = true;
-            internal_types_[index].boundary_transport_kind =
-                transport_kind::borrowed_view;
-            internal_types_[index].element_type_index =
-                ensure_type_from_cpp<std::remove_cv_t<element_type>>();
-            internal_types_[index].mutable_view =
-                span_traits<std::remove_cv_t<span_type>>::mutable_view;
-            internal_types_[index].dynamic_extent =
-                span_traits<std::remove_cv_t<span_type>>::extent ==
-                std::dynamic_extent;
-            internal_types_[index].extent_value =
-                internal_types_[index].dynamic_extent
-                    ? 0
-                    : span_traits<std::remove_cv_t<span_type>>::extent;
+            if (is_boundary_mode()) {
+                internal_types_[index].kind = type_kind::span_view;
+                internal_types_[index].boundary_transportable = true;
+                internal_types_[index].boundary_transport_kind =
+                    transport_kind::borrowed_view;
+                internal_types_[index].element_type_index =
+                    ensure_type_from_cpp<std::remove_cv_t<element_type>>();
+                internal_types_[index].mutable_view =
+                    span_traits<std::remove_cv_t<span_type>>::mutable_view;
+                internal_types_[index].dynamic_extent =
+                    span_traits<std::remove_cv_t<span_type>>::extent ==
+                    std::dynamic_extent;
+                internal_types_[index].extent_value =
+                    internal_types_[index].dynamic_extent
+                        ? 0
+                        : span_traits<std::remove_cv_t<span_type>>::extent;
+            } else {
+                internal_types_[index].kind = type_kind::record;
+                bool recursively_transportable = true;
+                template for (constexpr auto field : reflected_fields_v<Type>) {
+                    using field_type = typename [:reflected_type<field>() :];
+                    internal_record_field field_desc;
+                    if constexpr (reflection_has_identifier<field>()) {
+                        field_desc.name =
+                            std::string(reflection_identifier<field>());
+                    } else {
+                        field_desc.name =
+                            std::string(reflection_display_string<field>());
+                    }
+                    field_desc.type_index = ensure_type_from_cpp<field_type>();
+                    const auto offset = meta::offset_of(field);
+                    field_desc.offset_bytes =
+                        static_cast<std::size_t>(offset.bytes);
+                    field_desc.size_bytes = meta::size_of(^^field_type);
+                    field_desc.align_bytes = meta::alignment_of(^^field_type);
+                    internal_types_[index].fields.push_back(std::move(field_desc));
+                    recursively_transportable =
+                        recursively_transportable &&
+                        is_record_field_boundary_transportable_from_cpp<
+                            field_type>();
+                }
+                (void)recursively_transportable;
+            }
         } else if constexpr (meta::is_bounded_array_type(Type)) {
             using element_type = typename [:meta::remove_extent(Type):];
             internal_types_[index].kind = type_kind::array;
-            internal_types_[index].boundary_transportable = false;
-            internal_types_[index].boundary_transport_kind =
-                transport_kind::unsupported;
-            internal_types_[index].boundary_diagnostic =
-                "fixed-size arrays are only boundary-callable inside accepted "
-                "trivial records in v1";
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable = false;
+                internal_types_[index].boundary_transport_kind =
+                    transport_kind::unsupported;
+                internal_types_[index].boundary_diagnostic =
+                    "fixed-size arrays are only boundary-callable inside accepted "
+                    "trivial records in v1";
+            }
             internal_types_[index].element_type_index =
                 ensure_type_from_cpp<element_type>();
             internal_types_[index].array_extent = meta::extent(Type);
         } else if constexpr (meta::is_pointer_type(Type)) {
             internal_types_[index].kind = type_kind::pointer;
-            internal_types_[index].boundary_transportable = false;
-            internal_types_[index].boundary_transport_kind =
-                transport_kind::unsupported;
-            internal_types_[index].boundary_diagnostic =
-                "pointer types are not boundary-transportable in v1";
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable = false;
+                internal_types_[index].boundary_transport_kind =
+                    transport_kind::unsupported;
+                internal_types_[index].boundary_diagnostic =
+                    "pointer types are not boundary-transportable in v1";
+            }
             internal_types_[index].referenced_display_name =
                 std::string(meta::display_string_of(meta::remove_pointer(Type)));
         } else if constexpr (meta::is_lvalue_reference_type(Type)) {
             internal_types_[index].kind = type_kind::lvalue_reference;
-            internal_types_[index].boundary_transportable = false;
-            internal_types_[index].boundary_transport_kind =
-                transport_kind::unsupported;
-            internal_types_[index].boundary_diagnostic =
-                "reference types are not boundary-transportable in v1";
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable = false;
+                internal_types_[index].boundary_transport_kind =
+                    transport_kind::unsupported;
+                internal_types_[index].boundary_diagnostic =
+                    "reference types are not boundary-transportable in v1";
+            }
             internal_types_[index].referenced_display_name = std::string(
                 meta::display_string_of(meta::remove_reference(Type)));
         } else if constexpr (meta::is_rvalue_reference_type(Type)) {
             internal_types_[index].kind = type_kind::rvalue_reference;
-            internal_types_[index].boundary_transportable = false;
-            internal_types_[index].boundary_transport_kind =
-                transport_kind::unsupported;
-            internal_types_[index].boundary_diagnostic =
-                "reference types are not boundary-transportable in v1";
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable = false;
+                internal_types_[index].boundary_transport_kind =
+                    transport_kind::unsupported;
+                internal_types_[index].boundary_diagnostic =
+                    "reference types are not boundary-transportable in v1";
+            }
             internal_types_[index].referenced_display_name = std::string(
                 meta::display_string_of(meta::remove_reference(Type)));
         } else if constexpr (meta::is_class_type(Type)) {
@@ -694,29 +763,33 @@ private:
                 meta::is_trivially_copyable_type(Type) &&
                 meta::is_trivially_destructible_type(Type);
 
-            internal_types_[index].boundary_transportable =
-                trivial_record && recursively_transportable;
-            internal_types_[index].boundary_transport_kind =
-                internal_types_[index].boundary_transportable
-                    ? transport_kind::by_value_record
-                    : transport_kind::unsupported;
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable =
+                    trivial_record && recursively_transportable;
+                internal_types_[index].boundary_transport_kind =
+                    internal_types_[index].boundary_transportable
+                        ? transport_kind::by_value_record
+                        : transport_kind::unsupported;
 
-            if (!trivial_record) {
-                internal_types_[index].boundary_diagnostic =
-                    "only trivial standard-layout records are "
-                    "boundary-transportable by value in v1";
-            } else if (!recursively_transportable) {
-                internal_types_[index].boundary_diagnostic =
-                    "record contains a field that is not boundary-transportable "
-                    "in v1";
+                if (!trivial_record) {
+                    internal_types_[index].boundary_diagnostic =
+                        "only trivial standard-layout records are "
+                        "boundary-transportable by value in v1";
+                } else if (!recursively_transportable) {
+                    internal_types_[index].boundary_diagnostic =
+                        "record contains a field that is not boundary-transportable "
+                        "in v1";
+                }
             }
         } else {
             internal_types_[index].kind = type_kind::unsupported;
-            internal_types_[index].boundary_transportable = false;
-            internal_types_[index].boundary_transport_kind =
-                transport_kind::unsupported;
-            internal_types_[index].boundary_diagnostic =
-                "type is describable but not boundary-transportable in v1";
+            if (is_boundary_mode()) {
+                internal_types_[index].boundary_transportable = false;
+                internal_types_[index].boundary_transport_kind =
+                    transport_kind::unsupported;
+                internal_types_[index].boundary_diagnostic =
+                    "type is describable but not boundary-transportable in v1";
+            }
         }
 
         return index;
@@ -783,6 +856,8 @@ private:
 
     template <meta::info Reflection>
     std::size_t append_function_from_entity() {
+        static_assert(!meta::is_class_member(Reflection),
+                      "describe_function v1 supports only free functions");
         internal_function_description desc;
         if constexpr (reflection_has_identifier<Reflection>()) {
             desc.display_name = std::string(reflection_identifier<Reflection>());
@@ -1037,11 +1112,11 @@ private:
         const std::string canonical = canonical_type_identity_json(
             index, cache, in_progress);
         materialized_type_ids_[index] =
-            hex_id("type:", runtime_crc32(canonical));
+            hex_id("type:", runtime_fnv1a_64(canonical));
         return materialized_type_ids_[index];
     }
 
-    std::string canonical_function_identity_json(
+    std::string canonical_function_signature_json(
         const internal_function_description& desc) {
         std::ostringstream out;
         out << "{";
@@ -1068,6 +1143,23 @@ private:
         return out.str();
     }
 
+    std::string canonical_function_identity_json(
+        const internal_function_description& desc) {
+        std::ostringstream out;
+        out << "{";
+        out << "\"signature_id\":"
+            << json_string(hex_id("fnsig:",
+                                  runtime_fnv1a_64(
+                                      canonical_function_signature_json(desc))));
+        if (!desc.qualified_name.empty()) {
+            out << ",\"qualified_name\":" << json_string(desc.qualified_name);
+        } else if (!desc.display_name.empty()) {
+            out << ",\"display_name\":" << json_string(desc.display_name);
+        }
+        out << "}";
+        return out.str();
+    }
+
     abi_spec_table finalize() {
         materialized_type_ids_.assign(internal_types_.size(), {});
         materialized_function_ids_.assign(internal_functions_.size(), {});
@@ -1079,13 +1171,24 @@ private:
             compute_type_id(index, canonical_cache, in_progress);
         }
 
+        std::vector<std::string> materialized_function_signature_ids(
+            internal_functions_.size());
         for (std::size_t index = 0; index != internal_functions_.size(); ++index) {
-            materialized_function_ids_[index] = hex_id(
-                "fn:", runtime_crc32(
-                          canonical_function_identity_json(internal_functions_[index])));
+            const std::string signature_json =
+                canonical_function_signature_json(internal_functions_[index]);
+            materialized_function_signature_ids[index] =
+                hex_id("fnsig:", runtime_fnv1a_64(signature_json));
+            const std::string identity_json =
+                internal_functions_[index].qualified_name.empty() &&
+                        internal_functions_[index].display_name.empty()
+                    ? signature_json
+                    : canonical_function_identity_json(internal_functions_[index]);
+            materialized_function_ids_[index] =
+                hex_id("fn:", runtime_fnv1a_64(identity_json));
         }
 
         abi_spec_table table;
+        table.mode = mode_;
         table.types.reserve(internal_types_.size());
         table.functions.reserve(internal_functions_.size());
 
@@ -1134,6 +1237,7 @@ private:
             const internal_function_description& source = internal_functions_[index];
             function_description target;
             target.id = materialized_function_ids_[index];
+            target.signature_id = materialized_function_signature_ids[index];
             target.display_name = source.display_name;
             target.qualified_name = source.qualified_name;
             target.convention = source.convention;
@@ -1167,6 +1271,7 @@ private:
     std::vector<internal_function_description> internal_functions_;
     std::vector<std::string> materialized_type_ids_;
     std::vector<std::string> materialized_function_ids_;
+    description_mode mode_;
 };
 
 inline std::string join_json_array(const std::vector<std::string>& items,
@@ -1306,6 +1411,9 @@ inline std::string serialize_function(const function_description& desc, bool pre
                                       std::size_t depth) {
     std::vector<std::string> parts;
     parts.push_back("\"id\":" + json_string(desc.id));
+    if (!desc.signature_id.empty()) {
+        parts.push_back("\"signature_id\":" + json_string(desc.signature_id));
+    }
     parts.push_back("\"display_name\":" + json_string(desc.display_name));
     if (!desc.qualified_name.empty()) {
         parts.push_back("\"qualified_name\":" + json_string(desc.qualified_name));
@@ -1372,24 +1480,25 @@ inline std::string serialize_function(const function_description& desc, bool pre
 
 template <typename T>
 abi_spec_table describe_boundary_type() {
-    detail::abi_builder builder;
+    detail::abi_builder builder(description_mode::boundary);
     return builder.describe_root_type<^^T>();
 }
 
 template <typename T>
 abi_spec_table describe_native_type() {
-    return describe_boundary_type<T>();
+    detail::abi_builder builder(description_mode::native);
+    return builder.describe_root_type<^^T>();
 }
 
 template <typename FunctionType>
 abi_spec_table describe_function_signature() {
-    detail::abi_builder builder;
+    detail::abi_builder builder(description_mode::boundary);
     return builder.describe_root_function_signature<FunctionType>();
 }
 
 template <meta::info Reflection>
 abi_spec_table describe_function() {
-    detail::abi_builder builder;
+    detail::abi_builder builder(description_mode::boundary);
     return builder.describe_root_function<Reflection>();
 }
 
@@ -1408,6 +1517,8 @@ inline std::string to_json(const abi_spec_table& table, bool pretty) {
 
     std::vector<std::string> parts;
     parts.push_back("\"schema_version\":" + std::to_string(table.schema_version));
+    parts.push_back("\"description_mode\":" +
+                    detail::json_string(detail::to_string(table.mode)));
     if (!table.root_type_id.empty()) {
         parts.push_back("\"root_type_id\":" + detail::json_string(table.root_type_id));
     }
@@ -1452,11 +1563,11 @@ inline std::string to_canonical_json(const abi_spec_table& table) {
     return to_json(table, false);
 }
 
-inline std::uint32_t hash_canonical_json(std::string_view json) {
-    return detail::runtime_crc32(json);
+inline std::uint64_t hash_canonical_json(std::string_view json) {
+    return detail::runtime_fnv1a_64(json);
 }
 
-inline std::uint32_t hash_canonical_json(const abi_spec_table& table) {
+inline std::uint64_t hash_canonical_json(const abi_spec_table& table) {
     return hash_canonical_json(to_canonical_json(table));
 }
 

@@ -62,6 +62,7 @@ struct non_trivial {
 };
 
 double unary(double value) noexcept { return value; }
+double unary_alias(double value) noexcept { return value + 1.0; }
 
 point fold(point lhs, point rhs) noexcept {
     return point{lhs.x + rhs.x, lhs.y + rhs.y};
@@ -146,6 +147,15 @@ int main() {
     }
 
     {
+        const auto table =
+            stable_abi::describe_native_type<std::span<const double>>();
+        const auto* root = find_type(table, table.root_type_id);
+        assert(root != nullptr);
+        assert(table.mode == stable_abi::description_mode::native);
+        assert(root->kind == stable_abi::type_kind::record);
+    }
+
+    {
         const auto table = stable_abi::describe_boundary_type<mode>();
         const auto* root = find_type(table, table.root_type_id);
         assert(root != nullptr);
@@ -159,9 +169,22 @@ int main() {
         const auto* function = root_function(table);
         assert(function != nullptr);
         assert(function->boundary_callable);
+        assert(function->signature_id.rfind("fnsig:", 0) == 0);
+        assert(function->id.rfind("fn:", 0) == 0);
         assert(function->params.size() == 1);
         assert(function->params[0].passing == stable_abi::passing_kind::by_value);
         assert(function->result.passing == stable_abi::passing_kind::by_value);
+    }
+
+    {
+        const auto left = stable_abi::describe_function<^^unary>();
+        const auto right = stable_abi::describe_function<^^unary_alias>();
+        const auto* left_fn = root_function(left);
+        const auto* right_fn = root_function(right);
+        assert(left_fn != nullptr);
+        assert(right_fn != nullptr);
+        assert(left_fn->id != right_fn->id);
+        assert(left_fn->signature_id == right_fn->signature_id);
     }
 
     {
