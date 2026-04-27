@@ -10,4 +10,7 @@ target_link_libraries(
     PRIVATE beman::stable_abi
 )
 
-add_test(NAME beman.stable_abi.tests.abi_hash COMMAND beman.stable_abi.tests.abi_hash)
+add_test(
+    NAME beman.stable_abi.tests.abi_hash
+    COMMAND $<TARGET_FILE:beman.stable_abi.tests.abi_hash>
+)

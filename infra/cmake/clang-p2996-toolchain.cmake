@@ -26,7 +26,7 @@ set(
 
 set(
     BEMAN_STABLE_ABI_P2996_CXX_FLAGS
-    "-freflection -fexpansion-statements -isysroot ${BEMAN_STABLE_ABI_P2996_SYSROOT} -nostdinc++ -isystem ${BEMAN_STABLE_ABI_P2996_LIBCXX_INCLUDE} -stdlib=libc++"
+    "-freflection -fparameter-reflection -fexpansion-statements -isysroot ${BEMAN_STABLE_ABI_P2996_SYSROOT} -nostdinc++ -isystem ${BEMAN_STABLE_ABI_P2996_LIBCXX_INCLUDE} -stdlib=libc++"
 )
 set(
     BEMAN_STABLE_ABI_P2996_LINK_FLAGS

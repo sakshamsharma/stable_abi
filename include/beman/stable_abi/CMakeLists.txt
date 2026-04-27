@@ -5,6 +5,7 @@ target_sources(
     PUBLIC
         FILE_SET HEADERS
             FILES
+                abi_description.hpp
                 abi_hash.hpp
                 config.hpp
                 crc32.hpp
