@@ -173,6 +173,11 @@ consteval auto reflected_return_type() {
 }
 
 template <meta::info Reflection>
+consteval auto function_entity_signature_reflection() {
+    return meta::type_of(Reflection);
+}
+
+template <meta::info Reflection>
 inline constexpr auto reflected_parameters_v =
     std::define_static_array(meta::parameters_of(Reflection));
 
@@ -875,14 +880,26 @@ private:
 
         std::size_t parameter_index = 0;
         template for (constexpr auto parameter : reflected_parameters_v<Reflection>) {
-            desc.params.push_back(
-                make_parameter_description<parameter>("arg", parameter_index));
+            using parameter_type = typename [:meta::type_of(parameter):];
+            internal_function_parameter parameter_desc;
+            if constexpr (reflection_has_identifier<parameter>()) {
+                parameter_desc.name =
+                    std::string(reflection_identifier<parameter>());
+            } else {
+                parameter_desc.name = "arg" + std::to_string(parameter_index);
+            }
+            parameter_desc.type_index = ensure_type_from_cpp<parameter_type>();
+            parameter_desc.passing =
+                classify_parameter_passing_from_cpp<parameter_type>();
+            desc.params.push_back(std::move(parameter_desc));
             ++parameter_index;
         }
 
-        using result_type = typename [:reflected_return_type<Reflection>() :];
+        using result_type = typename [:reflected_return_type<
+            function_entity_signature_reflection<Reflection>()>() :];
         desc.result = make_result_description_from_cpp<result_type>();
-        validate_boundary_function<Reflection>(desc);
+        validate_boundary_function<function_entity_signature_reflection<Reflection>()>(
+            desc);
         internal_functions_.push_back(std::move(desc));
         return internal_functions_.size() - 1;
     }
